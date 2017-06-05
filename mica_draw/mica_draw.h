@@ -8,9 +8,12 @@
 
 namespace mica_draw {
   
-template < class T > inline Print &operator <<( Print &obj, T arg ) { obj.print(arg); return obj; }
+template < class T > inline Print &operator <<( Print &obj, T arg ) { obj.print( arg ); return obj; }
 
-#define OPERATIONS 6
+#define UPDATE( NAME )       read( NAME )
+#define CREATE( TYPE, NAME ) TYPE NAME; UPDATE( NAME )
+    
+#define OPERATIONS 16
 
 class parser
 {
@@ -20,13 +23,23 @@ class parser
     , tft( LCD_CS, LCD_CD, LCD_WR, LCD_RD, LCD_RESET )
     {
       reset( );
-      
-      dictionary[ 0 ] = &parser::reset;
-      dictionary[ 1 ] = &parser::set_bg;
-      dictionary[ 2 ] = &parser::set_fg;
-      dictionary[ 3 ] = &parser::plot;
-      dictionary[ 4 ] = &parser::line;
-      dictionary[ 5 ] = &parser::cls;
+
+      dictionary[ 0 ] = &parser::ping;
+      dictionary[ 1 ] = &parser::reset;
+      dictionary[ 2 ] = &parser::bg;
+      dictionary[ 3 ] = &parser::fg;
+      dictionary[ 4 ] = &parser::plot;
+      dictionary[ 5 ] = &parser::line;
+      dictionary[ 6 ] = &parser::cls;
+      dictionary[ 7 ] = &parser::rect;
+      dictionary[ 8 ] = &parser::fill;
+      dictionary[ 9 ] = &parser::circle;
+      dictionary[ 10 ] = &parser::invert;
+      dictionary[ 11 ] = &parser::rotate;
+      dictionary[ 12 ] = &parser::triangle;
+      dictionary[ 13 ] = &parser::text;
+      dictionary[ 14 ] = &parser::at;
+      dictionary[ 15 ] = &parser::textsize;
     }
 
     void setup( ) 
@@ -35,7 +48,6 @@ class parser
       tft.reset( );
       uint16_t id = tft.readID( );
       tft.begin( id );
-      tft.setRotation( 0 );
       tft.fillScreen( 0x0000 );
     }
 
@@ -47,12 +59,15 @@ class parser
       {
         uint8_t op;
         read( op );
-        Serial << "received: " << int( op ) << "\r\n";
         lookup( op );
       }
     }
 
   protected:
+    void ping( )
+    {
+    }
+    
     void reset( )
     {
       // Callibration settings
@@ -69,40 +84,126 @@ class parser
       BG = 0x0000;
       FG = 0xffff;
 
-      tft.fillScreen( BG );
+      // Turn fill off
+      FILL = 0x00;
+
+      tft.setCursor( 0, 0 );
+      tft.setTextColor( FG, BG );
+      tft.setTextSize( 1 );
+      tft.setTextWrap( true );
+
+      touched = 0;
     }
     
-    void set_bg( )
+    void bg( )
     {
-      read( BG );
+      UPDATE( BG );
+      tft.setTextColor( FG, BG );
     }
     
-    void set_fg( )
+    void fg( )
     {
-      read( FG );
+      UPDATE( FG );
+      tft.setTextColor( FG, BG );
     }
     
     void plot( )
     {
-      uint16_t x, y;
-      read( x );
-      read( y );
+      CREATE( uint16_t, x );
+      CREATE( uint16_t, y );
       tft.drawPixel( x, y, FG );
     }
     
     void line( )
     {
-      uint16_t x1, y1, x2, y2;
-      read( x1 );
-      read( y1 );
-      read( x2 );
-      read( y2 );
+      CREATE( uint16_t, x1 );
+      CREATE( uint16_t, y1 );
+      CREATE( uint16_t, x2 );
+      CREATE( uint16_t, y2 );
       tft.drawLine( x1, y1, x2, y2, FG );
     }
 
     void cls( )
     {
       tft.fillScreen( BG );
+    }
+    
+    void fill( )
+    {
+      UPDATE( FILL );
+    }
+
+    void rect( )
+    {
+      CREATE( uint16_t, x );
+      CREATE( uint16_t, y );
+      CREATE( uint16_t, w );
+      CREATE( uint16_t, h );
+      if ( FILL == 0 )
+        tft.drawRect( x, y, w, h, FG );
+      else
+        tft.fillRect( x, y, w, h, FG );
+    }
+
+    void circle( )
+    {
+      CREATE( uint16_t, x );
+      CREATE( uint16_t, y );
+      CREATE( uint16_t, r );
+      if ( FILL == 0 )
+        tft.drawCircle( x, y, r, FG );
+      else
+        tft.fillCircle( x, y, r, FG );     
+    }
+    
+    void invert( )
+    {
+      CREATE( uint8_t, i );
+      tft.invertDisplay( i != 0 );     
+    }
+
+    void rotate( )
+    {
+      CREATE( uint8_t, r );
+      tft.setRotation( r );     
+    }
+    
+    void triangle( )
+    {
+      CREATE( uint16_t, x1 );
+      CREATE( uint16_t, y1 );
+      CREATE( uint16_t, x2 );
+      CREATE( uint16_t, y2 );
+      CREATE( uint16_t, x3 );
+      CREATE( uint16_t, y3 );
+
+      if ( FILL == 0 )
+        tft.drawTriangle( x1, y1, x2, y2, x3, y3, FG );
+      else
+        tft.fillTriangle( x1, y1, x2, y2, x3, y3, FG );
+    }
+
+    void text( )
+    {
+      uint8_t len;
+      char data[ 256 ];
+      read( len );
+      read( data, len );
+      data[ len ] = 0;
+      tft << data;
+    }
+
+    void at( )
+    {
+      CREATE( uint16_t, x );
+      CREATE( uint16_t, y );
+      tft.setCursor( x, y );
+    }
+    
+    void textsize( )
+    {
+      CREATE( uint8_t, s );
+      tft.setTextSize( s );
     }
     
   private:
@@ -115,6 +216,11 @@ class parser
     int read( uint16_t &value )
     {
       return Serial.readBytes( ( uint8_t * )&value, sizeof( uint16_t ) );
+    }
+
+    int read( char *text, int len )
+    {
+      return Serial.readBytes( ( uint8_t * )text, len );
     }
 
     int write( const uint8_t &value )
@@ -130,11 +236,15 @@ class parser
     void lookup( uint8_t op )
     {
       if ( op < OPERATIONS )
+      {
         ( this ->* dictionary[ op ] )( );
+        write( uint8_t( 0x01 ) );
+        write( op );
+      }
     }
 
     void monitor_touch( )
-    {  
+    {
       TSPoint p = ts.getPoint( );
     
       // if sharing pins, you'll need to fix the directions of the touchscreen pins
@@ -143,12 +253,17 @@ class parser
       pinMode( YP, OUTPUT );
       pinMode( YM, OUTPUT );
     
-      if ( Serial.availableForWrite( ) > 8 && p.z > MINPRESSURE && p.z < MAXPRESSURE ) 
+      if ( touched < 900 && p.z > MINPRESSURE && p.z < MAXPRESSURE ) 
       {
-        write( uint16_t( 0 ) );
-        write( uint16_t( p.x ) );
-        write( uint16_t( p.y ) );
+        touched = 1000;
+        write( uint8_t( 0x02 ) );
+        write( uint16_t( map( p.x, TS_MINX, TS_MAXX, 0, tft.width( ) ) ) );
+        write( uint16_t( map( p.y, TS_MINY, TS_MAXY, 0, tft.height( ) ) ) );
         write( uint16_t( p.z ) );
+      }
+      else if ( touched > 0 )
+      {
+        if ( -- touched == 0 ) write( uint8_t( 0x03 ) );
       }
     }
 
@@ -171,6 +286,12 @@ class parser
     // Foreground/background state
     uint16_t BG;
     uint16_t FG;
+
+    // Fill
+    uint8_t FILL;
+
+    // State for touch
+    int touched;
 };
 
 }
