@@ -3,6 +3,8 @@ import struct
 import select
 import random
 import math
+import time
+import shlex
 
 class stack:
 	def __init__( self, fd ):
@@ -59,7 +61,7 @@ class stack:
 		return self
 
 	def parse( self, data ):
-		for token in data.rstrip( ).split( ):
+		for token in shlex.split( data.rstrip( ) ):
 			self.push( token )
 
 	def incoming( self, stack ):
@@ -291,39 +293,89 @@ class string:
 
 class word:
 	def __init__( self ):
+		def word( stack ):
+			self.name = None
+			self.body = [ ]
+			stack.recipient = cb_word
+
+		def cb_word( stack, value ):
+			if self.name is None:
+				self.name = value
+			elif value != ';':
+				self.body.append( value )
+			else:
+				stack.grammar[ self.name ] = self.body
+				stack.recipient = None
+
 		self.words = { }
-		self.words[ ":" ] = self.word
+		self.words[ ":" ] = word
 
-	def word( self, stack ):
-		self.name = None
-		self.body = [ ]
-		stack.recipient = self.cb_word
+class loop:
+	def __init__( self ):
+		self.loops = [ ]
+		self.words = { }
+		self.words[ "do" ] = self.do
+		self.words[ "i" ] = self.i
 
-	def cb_word( self, stack, value ):
-		if self.name is None:
-			self.name = value
-		elif value != ';':
-			self.body.append( value )
+	def do( self, stack ):
+		lower = float( stack.pop( ) )
+		upper = float( stack.pop( ) )
+		self.loops.append( [ lower, upper, lower, [ ] ] )
+		stack.recipient = self.loop
+
+	def loop( self, stack, value ):
+		if value != "loop" and value != "+loop":
+			self.loops[ -1 ][ 3 ].append( value )
 		else:
-			stack.grammar[ self.name ] = self.body
 			stack.recipient = None
+			loop = self.loops[ -1 ]
+			while loop[ 2 ] < loop[ 1 ]:
+				for token in loop[ 3 ]:
+					stack.push( token )
+				if value == "loop":
+					loop[ 2 ] += 1
+				else:
+					loop[ 2 ] += float( stack.pop( ) )
+			self.loops.pop( )
+
+	def i( self, stack ):
+		stack.append( self.loops[ -1 ][ 2 ] )
+
+class clock:
+	def __init__( self ):
+		def sleep( stack ):
+			t = float( stack.pop( ) )
+			time.sleep( t )
+
+		def now( stack ):
+			stack.append( time.time( ) )
+
+		def tform( stack ):
+			form = str( stack.pop( ) )
+			now = float( stack.pop( ) )
+			stack.append( time.strftime( form, time.localtime( now ) ) )
+
+		self.words = { }
+		self.words[ "sleep" ] = sleep
+		self.words[ "now" ] = now
+		self.words[ "tform" ] = tform
 
 class io:
 	def __init__( self, fd = sys.stdout ):
+		def output( stack ):
+			a = stack.pop( )
+			print >> self.fd, a
+
+		def dump( stack ):
+			print >> self.fd, "[",
+			for item in stack.content:
+				print >> self.fd, '"' + str( item ) + '"',
+			print >> self.fd, "]"
+
 		self.fd = fd
 		self.words = { }
-		self.words[ "." ] = self.output
-		self.words[ ".s" ] = self.dump
-
-	def output( self, stack ):
-		a = stack.pop( )
-		print >> self.fd, a
-
-	def dump( self, stack ):
-		print >> self.fd, "[",
-		for item in stack.content:
-			print >> self.fd, '"' + str( item ) + '"',
-		print >> self.fd, "]"
+		self.words[ "." ] = output
+		self.words[ ".s" ] = dump
 
 class noise:
 	def __init__( self ):
@@ -367,6 +419,7 @@ class primitives:
 		self.words[ "print" ] = self.text
 		self.words[ "at" ] = self.at
 		self.words[ "textsize" ] = self.textsize
+		self.words[ "sync" ] = self.sync_all
 
 		self.responses = { }
 		self.responses[ 0 ] = self.resp_error
@@ -375,10 +428,14 @@ class primitives:
 		self.responses[ 3 ] = self.resp_release
 
 	def sync( self, stack ):
-		while self.pending > 8:
+		while self.pending > 0:
 			self.incoming( stack )
 		self.pending += 1
 
+	def sync_all( self, stack ):
+		while self.pending > 0:
+			self.incoming( stack )
+		
 	def noop( self, stack ):
 		self.sync( stack )
 		self.write( struct.pack( "<B", 0 ) )
@@ -433,7 +490,7 @@ class primitives:
 		r = int( stack.pop( ) )
 		y = int( stack.pop( ) )
 		x = int( stack.pop( ) )
-		self.write( struct.pack( "<BHHH", 9, x, y, r ) )
+		self.write( struct.pack( "<BHHH", 16, x, y, r ) )
 
 	def invert( self, stack ):
 		self.sync( stack )
@@ -477,23 +534,23 @@ class primitives:
 		if op in self.responses:
 			self.responses[ op ]( stack )
 		else:
-			print "unrecognised response:", op
+			print >> sys.stderr, "unrecognised response:", op
 
 	def resp_error( self, stack ):
-		print "unknown error"
+		print >> sys.stderr, "unknown error"
 
 	def resp_ack( self, stack ):
 		pattern = "<B"
 		( op, ) = struct.unpack( pattern, self.read( struct.calcsize( pattern ) ) )
 		self.pending -= 1
-		print "operation complete:", int( op )
+		print >> sys.stderr, "operation complete:", int( op ), "pending:", self.pending
 
 	def resp_touch( self, stack ):
 		pattern = "<HHH"
 		( x, y, z ) = struct.unpack( pattern, self.read( struct.calcsize( pattern ) ) )
 		print "touch at", x, y, z
 		#if self.touched is None:
-		stack.push( x ).push( y ).push( "plot" )
+		#	stack.push( x ).push( y ).push( "plot" )
 		#else:
 		#	x1, y1, z1 = self.touched
 		#	if x1 != x or y1 != y:
@@ -511,6 +568,90 @@ class primitives:
 	def read( self, size ):
 		return self.fd.read( size )
 
+class servos:
+	def __init__( self, fd ):
+		self.fd = fd
+		self.pending = 0
+		self.touched = None
+
+		self.words = { }
+		self.words[ "noop" ] = self.noop
+		self.words[ "reset" ] = self.reset
+		self.words[ "connect" ] = self.connect
+		self.words[ "range" ] = self.range
+		self.words[ "turn" ] = self.turn
+		self.words[ "absolute" ] = self.absolute
+
+		self.responses = { }
+		self.responses[ 0 ] = self.resp_error
+		self.responses[ 1 ] = self.resp_ack
+		self.responses[ 2 ] = self.resp_debug
+
+	def sync( self, stack ):
+		while self.pending > 8:
+			self.incoming( stack )
+		self.pending += 1
+
+	def noop( self, stack ):
+		self.sync( stack )
+		self.write( struct.pack( "<B", 0 ) )
+
+	def reset( self, stack ):
+		self.sync( stack )
+		self.write( struct.pack( "<B", 1 ) )
+
+	def connect( self, stack ):
+		self.sync( stack )
+		unit = int( stack.pop( ) )
+		pin = int( stack.pop( ) )
+		self.write( struct.pack( "<BHH", 2, unit, pin ) )
+
+	def range( self, stack ):
+		self.sync( stack )
+		unit = int( stack.pop( ) )
+		upper = int( stack.pop( ) )
+		lower = int( stack.pop( ) )
+		self.write( struct.pack( "<BHHH", 3, unit, lower, upper ) )
+
+	def turn( self, stack ):
+		self.sync( stack )
+		unit = int( stack.pop( ) )
+		position = int( float( stack.pop( ) ) * 0xffff )
+		self.write( struct.pack( "<BHH", 4, unit, position ) )
+
+	def absolute( self, stack ):
+		self.sync( stack )
+		unit = int( stack.pop( ) )
+		position = int( stack.pop( ) )
+		self.write( struct.pack( "<BHH", 5, unit, position ) )
+
+	def incoming( self, stack ):
+		pattern = "<B"
+		( op, ) = struct.unpack( pattern, self.read( struct.calcsize( pattern ) ) )
+		if op in self.responses:
+			self.responses[ op ]( stack )
+		else:
+			print >> sys.stderr, "unrecognised response:", op
+
+	def resp_error( self, stack ):
+		print >> sys.stderr, "unknown error"
+
+	def resp_ack( self, stack ):
+		pattern = "<B"
+		( op, ) = struct.unpack( pattern, self.read( struct.calcsize( pattern ) ) )
+		self.pending -= 1
+		print >> sys.stderr, "operation complete:", int( op )
+
+	def resp_debug( self, stack ):
+		print "debug:", self.fd.readline( ),
+
+	def write( self, data ):
+		self.fd.write( data )
+		self.fd.flush( )
+
+	def read( self, size ):
+		return self.fd.read( size )
+
 s = stack( sys.stdin )
 s.register( ints( ) )
 s.register( floats( ) )
@@ -520,17 +661,23 @@ s.register( maths( ) )
 s.register( manipulations( ) )
 s.register( string( ) )
 s.register( word( ) )
+s.register( loop( ) )
+s.register( clock( ) )
 s.register( io( ) )
 s.register( noise( ) )
 s.register( utils( ) )
 
-if len( sys.argv ) > 1:
-	fd = open( sys.argv[ 1 ], "r+" )
+if len( sys.argv ) > 2 and sys.argv[ 1 ] == "lcd":
+	fd = open( sys.argv[ 2 ], "r+" )
 	s.register( primitives( fd ) )
+elif len( sys.argv ) > 2 and sys.argv[ 1 ] == "servos":
+	fd = open( sys.argv[ 2 ], "r+" )
+	s.register( servos( fd ) )
 
 while True:
 	try:
 		s.run( )
+		sys.stdout.flush( )
 	except EOFError, e:
 		break
 	except Exception, e:

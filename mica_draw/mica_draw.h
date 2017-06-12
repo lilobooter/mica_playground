@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core.h"
+
 #include <SPFD5408_Adafruit_GFX.h>    // Core graphics library
 #include <SPFD5408_Adafruit_TFTLCD.h> // Hardware-specific library
 #include <SPFD5408_TouchScreen.h>
@@ -7,15 +9,10 @@
 #include "mica_arduino.h"
 
 namespace mica_draw {
-  
-template < class T > inline Print &operator <<( Print &obj, T arg ) { obj.print( arg ); return obj; }
 
-#define UPDATE( NAME )       read( NAME )
-#define CREATE( TYPE, NAME ) TYPE NAME; UPDATE( NAME )
-    
-#define OPERATIONS 16
+#define OPERATIONS 17
 
-class parser
+class parser : protected core::base
 {
   public:
     parser( )
@@ -40,6 +37,7 @@ class parser
       dictionary[ 13 ] = &parser::text;
       dictionary[ 14 ] = &parser::at;
       dictionary[ 15 ] = &parser::textsize;
+      dictionary[ 16 ] = &parser::circle;
     }
 
     void setup( ) 
@@ -126,6 +124,7 @@ class parser
     void cls( )
     {
       tft.fillScreen( BG );
+      tft.setCursor( 0, 0 );
     }
     
     void fill( )
@@ -205,43 +204,6 @@ class parser
       CREATE( uint8_t, s );
       tft.setTextSize( s );
     }
-    
-  private:
-    // NB: Read and write assume little endian
-    int read( uint8_t &value )
-    {
-      return Serial.readBytes( &value, sizeof( uint8_t ) );
-    }
-    
-    int read( uint16_t &value )
-    {
-      return Serial.readBytes( ( uint8_t * )&value, sizeof( uint16_t ) );
-    }
-
-    int read( char *text, int len )
-    {
-      return Serial.readBytes( ( uint8_t * )text, len );
-    }
-
-    int write( const uint8_t &value )
-    {
-      return Serial.write( &value, sizeof( uint8_t ) );
-    }
-
-    int write( const uint16_t &value )
-    {
-      return Serial.write( ( uint8_t * )&value, sizeof( uint16_t ) );
-    }
-    
-    void lookup( uint8_t op )
-    {
-      if ( op < OPERATIONS )
-      {
-        ( this ->* dictionary[ op ] )( );
-        write( uint8_t( 0x01 ) );
-        write( op );
-      }
-    }
 
     void monitor_touch( )
     {
@@ -264,6 +226,17 @@ class parser
       else if ( touched > 0 )
       {
         if ( -- touched == 0 ) write( uint8_t( 0x03 ) );
+      }
+    }
+
+  private:
+    void lookup( uint8_t op )
+    {
+      if ( op < OPERATIONS )
+      {
+        ( this ->* dictionary[ op ] )( );
+        write( uint8_t( 0x01 ) );
+        write( op );
       }
     }
 
