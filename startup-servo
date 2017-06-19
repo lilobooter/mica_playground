@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+dir=~root
+stty 57600 raw < /dev/ttyS1
+python $dir/server.py python $dir/service.py servos /dev/ttyS1 &
+sleep 10
+cat << EOF | nc localhost 7688
+: init reset 2 0 connect 3 1 connect ;
+: move 1 absolute 0 absolute ;
+: forward init 180 0 move ;
+: backward init 0 180 move ;
+: left init 0 0 move ;
+: right init 180 180 move ;
+: stop reset ;
+EOF
