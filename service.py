@@ -42,7 +42,7 @@ class stack:
 		elif self.accepted( value ):
 			pass
 		else:
-			print >> sys.stderr, "Unrecognised token", value
+			print "ERR: Unknown token '%s'" % value
 		return self
 
 	def accepted( self, value ):
@@ -590,7 +590,6 @@ class servos:
 	def sync( self, stack ):
 		while self.pending > 8:
 			self.incoming( stack )
-		self.pending += 1
 
 	def noop( self, stack ):
 		self.sync( stack )
@@ -648,6 +647,7 @@ class servos:
 	def write( self, data ):
 		self.fd.write( data )
 		self.fd.flush( )
+		self.pending += 1
 
 	def read( self, size ):
 		return self.fd.read( size )

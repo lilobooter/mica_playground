@@ -9,7 +9,7 @@ import subprocess
 p = subprocess.Popen( sys.argv[ 1 : ], stdin = subprocess.PIPE, stdout = subprocess.PIPE )
 
 BIND_IP = '0.0.0.0'
-BIND_PORT = 9090
+BIND_PORT = 7688
 
 def handle_client(client_socket):
 	fd = client_socket.makefile( )
@@ -33,6 +33,7 @@ def handle_client(client_socket):
 
 def tcp_server():
 	server = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
+	server.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
 	server.bind(( BIND_IP, BIND_PORT))
 	server.listen(5)
 	print >> sys.stderr, "[*] Listening on %s:%d" % (BIND_IP, BIND_PORT)
