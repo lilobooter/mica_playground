@@ -90,6 +90,16 @@ class parser : protected core::base
       }
     }
     
+    void absolute( )
+    {
+      CREATE( uint16_t, unit );
+      CREATE( uint16_t, position );
+      if ( unit < SERVOS )
+      {
+        servos[ unit ].servo.write( position );
+      }
+    }
+    
     void range( )
     {
       CREATE( uint16_t, unit );
@@ -113,16 +123,6 @@ class parser : protected core::base
       }
     }
 
-    void absolute( )
-    {
-      CREATE( uint16_t, unit );
-      CREATE( uint16_t, position );
-      if ( unit < SERVOS )
-      {
-        servos[ unit ].servo.write( position );
-      }
-    }
-    
   private:
     void lookup( uint8_t op )
     {

@@ -27,7 +27,7 @@ def handle_client(client_socket):
 				p.stdin.flush( )
 			else:
 				print >> sys.stderr, "XMIT:", data,
-				print >> fd, ">>>", data,
+				print >> fd, data,
 				fd.flush( )
 	client_socket.close()
 
@@ -39,7 +39,7 @@ def tcp_server():
 	print >> sys.stderr, "[*] Listening on %s:%d" % (BIND_IP, BIND_PORT)
 
 	while 1:
-		result = select.select( [ server ], [ ], [ ], 0.0 )
+		result = select.select( [ server ], [ ], [ ], 5.0 )
 		if server in result[ 0 ]:
 			client, addr = server.accept()
 			print >> sys.stderr, "[*] Accepted connection from: %s:%d" %(addr[0], addr[1])
